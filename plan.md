@@ -1,445 +1,243 @@
-# Open Shipping — Comprehensive Implementation Plan (TypeScript Edition)
+# Open Shipping — Project Analysis & Improvement Roadmap
 
-> **Design Language:** Monochromatic (Dark / Light toggle) · Green & Red accents · Sleek Minimalism  
-> **Stack:** Vite + TypeScript + Vanilla CSS  
-> **Target:** Professional-grade logistics & shipping data dashboard
-
----
-
-## 1. Vision & Scope
-
-Open Shipping is a **real-time shipping operations dashboard** that gives logistics teams, operators, and analysts a unified view of:
-
-- Live shipment tracking across carriers
-- Fleet & vessel status
-- Port congestion & route analytics
-- Document management (bills of lading, invoices, customs)
-- Alerts, anomalies, and SLA breach warnings
+> **Analysis Date:** May 9, 2026
+> **Codebase Scope:** Full TypeScript source (~4,200+ lines across 27 files)
 
 ---
 
-## 2. Design System
+## 🎯 Priority 1: Critical Technical Debt
 
-### 2.1 Color Tokens
+### 1. Type Safety — Convert `any[]` to Proper Types
+- **File:** `src/types/state.ts` line 36: `liveFleet: any[]`
+- **Impact:** Loses type safety across all pages consuming live fleet data (dashboard, tracking, fleet, shipments)
+- **Fix:** Create a proper `LiveVessel` interface with all AIS fields (MMSI, name, lat, lng, sog, cog, heading, navStatus, type, destination, callsign, imo, dim, eta, updated)
 
-| Token | Dark Theme | Light Theme | Purpose |
-|---|---|---|---|
-| `--bg-primary` | `#0a0a0a` | `#f5f5f5` | App background |
-| `--bg-surface` | `#111111` | `#ffffff` | Card / panel surface |
-| `--bg-elevated` | `#1a1a1a` | `#ebebeb` | Modals, dropdowns |
-| `--border` | `#222222` | `#d4d4d4` | Dividers, card borders |
-| `--text-primary` | `#f0f0f0` | `#111111` | Headlines, labels |
-| `--text-secondary` | `#888888` | `#555555` | Subtext, metadata |
-| `--text-muted` | `#444444` | `#aaaaaa` | Placeholders |
-| `--accent-green` | `#22c55e` | `#16a34a` | On-time, active, success |
-| `--accent-red` | `#ef4444` | `#dc2626` | Delayed, error, critical |
-| `--accent-amber` | `#f59e0b` | `#d97706` | Warning, pending |
-| `--accent-blue` | `#3b82f6` | `#2563eb` | Info, links |
+### 2. Missing Test Infrastructure
+- **Status:** Zero tests across the entire project
+- **Missing:** No testing framework in `package.json` (no vitest, jest, or playwright)
+- **Recommendation:** Add Vitest for unit tests on store, router, and utility functions
 
-### 2.2 Typography
+### 3. ESLint Not Configured
+- `package.json` references `"lint": "eslint src --ext ts"` but no `.eslintrc` file exists — the lint command will fail
 
-```
-Font Family: 'Inter', sans-serif (Google Fonts)
-Monospace: 'JetBrains Mono', monospace (tracking IDs, codes)
+### 4. Memory Leak — Interval Cleanup
+- **`src/pages/dashboard.ts`:** `dashboardInterval` is never cleared when navigating away from dashboard
+- **`src/main.ts`:** `simulateLiveUpdate` interval runs forever with no cleanup mechanism
+- **Intermittent intervals** (tracking.ts, fleet.ts, shipments.ts store.subscribe) — no unsubscribe cleanup on page navigation
 
---text-xs:   11px / 1.4
---text-sm:   13px / 1.5
---text-base: 15px / 1.6
---text-lg:   18px / 1.5
---text-xl:   22px / 1.4
---text-2xl:  28px / 1.3
---text-3xl:  36px / 1.2
-```
-
-### 2.3 Spacing & Radius
-
-```
---space-1: 4px    --space-2: 8px    --space-3: 12px
---space-4: 16px   --space-5: 24px   --space-6: 32px
---space-7: 48px   --space-8: 64px
-
---radius-sm: 4px   --radius-md: 8px
---radius-lg: 12px  --radius-full: 9999px
-```
-
-### 2.4 UI Micro-animations
-
-- Cards: `opacity 0 → 1`, `translateY(8px) → 0` on load (staggered 60ms)
-- Status badges: subtle `scale(1) → scale(1.04)` pulse for live states
-- Theme toggle: smooth `background`, `color`, `border-color` transitions (250ms ease)
-- Table rows: `background` highlight on hover (150ms)
-- Sidebar links: left-border slide-in accent on active (200ms)
-- KPI counters: animated number roll on data load
+### 5. Duplicate Code — Ship Type / Nav Status Helpers
+- **`getShipTypeInfo()`** is duplicated verbatim in `tracking.ts`, `fleet.ts`, and `shipments.ts`
+- **`getNavStatus()`** is duplicated in `fleet.ts` and `shipments.ts`
+- **`getShipTypeLabel()`** is a separate variant in `dashboard.ts`
+- **Fix:** Extract to a shared `src/utils/ship.ts` utility module
 
 ---
 
-## 3. Tech Stack
+## 🚀 Priority 2: High-Impact Features
 
-| Layer | Technology | Reason |
-|---|---|---|
-| **Bundler** | Vite 5 | Zero-config, instant HMR, native ESM |
-| **Language** | TypeScript 5 (strict mode) | Type safety, interfaces for data models |
-| **Styling** | Vanilla CSS (modules via `?inline`) | Full control, no framework overhead |
-| **Routing** | Custom hash router (typed) | Lightweight SPA without React Router |
-| **State** | Typed pub/sub store | Simple, no Redux overhead |
-| **Charts** | Chart.js 4 + typed wrappers | Full chart type support |
-| **Maps** | Leaflet 1.9 + `@types/leaflet` | Interactive world map |
-| **Icons** | Lucide (ES module imports) | Tree-shakeable SVG icons |
-| **Linting** | ESLint + typescript-eslint | Code quality |
-| **Formatting** | Prettier | Consistent style |
+### 6. Vessel Track History on Map
+- **Current:** Tracking map only shows current position markers
+- **Feature:** Draw polyline history trails showing vessel path over last N minutes
+- **Benefit:** Visualize movement patterns, detect route deviations for alerts
+- **Effort:** Medium — store N previous positions per vessel, draw Leaflet polylines
 
----
+### 7. Weather Overlay Layer
+- **Port data already has `weatherAlert` field** but no visual weather layer exists
+- **Feature:** Add wind/storm overlay tiles to the tracking map
+- **Integration:** Free APIs — OpenWeather tile layer or StormGlass API
+- **Settings:** Add weather overlay toggle in settings page
 
-## 4. Application Architecture
+### 8. Leaflet Marker Clustering
+- **Current:** Thousands of markers pushed to map individually at zoom-out levels
+- **Feature:** Integrate `leaflet.markercluster` for automatic marker clustering
+- **Benefit:** Massive performance improvement with 1,000+ live vessels
 
-```
-open-shipping/
-├── index.html                    # App shell entry point
-├── vite.config.ts                # Vite configuration
-├── tsconfig.json                 # TypeScript strict config
-├── package.json
-├── .eslintrc.json
-├── .prettierrc
-└── src/
-    ├── main.ts                   # App bootstrap
-    ├── styles/
-    │   ├── tokens.css            # Design tokens & CSS vars
-    │   ├── base.css              # Reset, typography, scrollbars
-    │   ├── layout.css            # Sidebar, topbar, content grid
-    │   ├── components.css        # Cards, tables, badges, modals
-    │   └── animations.css        # All keyframes & transitions
-    ├── types/
-    │   ├── shipment.ts           # Shipment, Event, Cargo interfaces
-    │   ├── fleet.ts              # Vessel, Vehicle interfaces
-    │   ├── port.ts               # Port, Route interfaces
-    │   ├── alert.ts              # Alert, Severity enums
-    │   ├── document.ts           # ShippingDocument interfaces
-    │   └── state.ts              # AppState, StoreEvent types
-    ├── store/
-    │   ├── index.ts              # Typed pub/sub store factory
-    │   └── actions.ts            # Typed action creators
-    ├── router/
-    │   └── index.ts              # Hash-based typed router
-    ├── data/
-    │   ├── mock.ts               # Realistic typed mock data generator
-    │   └── api.ts                # API abstraction (mock ↔ real swap)
-    ├── pages/
-    │   ├── dashboard.ts          # Overview / KPI page
-    │   ├── shipments.ts          # Shipments list & detail
-    │   ├── tracking.ts           # Live map tracking view
-    │   ├── fleet.ts              # Vessel & vehicle management
-    │   ├── ports.ts              # Port status & congestion
-    │   ├── documents.ts          # Document vault
-    │   ├── alerts.ts             # Alert center
-    │   └── settings.ts           # Preferences & configuration
-    └── components/
-        ├── sidebar.ts
-        ├── topbar.ts
-        ├── kpi-card.ts
-        ├── data-table.ts         # Generic typed DataTable<T>
-        ├── status-badge.ts
-        ├── modal.ts
-        ├── chart.ts              # Chart.js typed wrapper
-        └── timeline.ts           # Shipment event timeline
-```
+### 9. Live Theme Sync for Map
+- **Bug:** Tracking map tile layer is initialized once and never updates when user toggles theme in topbar/settings
+- **Feature:** Subscribe to store `theme` changes and swap tile layer dynamically
+- **Effort:** Low — add store subscription in tracking.ts
+
+### 10. Browser Push Notifications
+- **Settings page already has per-category notification toggles** but no implementation
+- **Feature:** Use `Notification API` for critical alerts even when tab is backgrounded
+- **Permission:** Request on first critical alert, show in topbar as badge
+
+### 11. Toast Notification System
+- **Current:** Alerts only visible in Alert Center or as sidebar badge number
+- **Feature:** Toast popup system in top-right corner for real-time critical alerts
+- **Behavior:** Auto-dismiss after 5s, click to navigate to alert
+- **Effort:** Low-Medium — create `components/toast.ts`
+
+### 12. Fleet Comparison Tool
+- **Feature:** Select 2+ vessels in Fleet page and show side-by-side telemetry comparison
+- **Display:** Compare speed, dimensions, destination, nav status, utilization
+
+### 13. Port Congestion Heatmap
+- **Port data has `coords` and `congestion`** — draw color-coded circles on tracking map
+- **Colors:** Low=green, Medium=amber, High=red, Critical=deep-red
+- **Effort:** Low — reuse existing port markers with different styling
+
+### 14. On-Map ETA Prediction
+- **Feature:** Calculate estimated arrival based on current SOG, COG, and destination lat/lng
+- **Display:** Show ETA countdown on vessel detail popup and drawer
+- **Effort:** Medium — Haversine distance + speed calculation
+
+### 15. Shipment Timeline / Kanban View
+- **Current:** Shipments page is tabular only
+- **Feature:** Add toggleable timeline/kanban view showing lifecycle stages (pending → picked_up → in_transit → at_port → customs_hold → out_for_delivery → delivered)
+- **Effort:** Medium — reuse existing shipment status types
 
 ---
 
-## 5. TypeScript Type System
+## 🎨 Priority 3: UX & UI Polish
 
-### Core Interfaces
+### 16. Keyboard Shortcuts Cheat Sheet
+- **Current:** Only `Ctrl+K` (search focus) and `Escape` (close drawers) exist
+- **Feature:** Press `?` to show a modal with all available shortcuts
+- **Proposed shortcuts:** `G+D` dashboard, `G+T` tracking, `G+F` fleet, `N` new alert, `R` refresh
 
-```typescript
-// types/shipment.ts
-export type ShipmentMode = 'sea' | 'air' | 'road' | 'rail';
-export type ShipmentStatus =
-  | 'pending' | 'picked_up' | 'in_transit' | 'at_port'
-  | 'customs_hold' | 'out_for_delivery' | 'delivered' | 'delayed';
+### 17. Map Full-Screen Mode
+- **Feature:** Full-screen toggle button on tracking page for immersive map viewing
+- **Uses:** Fullscreen API + expanded layout hiding sidebar
 
-export interface PortRef {
-  port: string;    // IATA/LOCODE e.g. "CNSHA"
-  name: string;
-  country: string; // ISO-2
-  coords: [number, number]; // [lat, lng]
-}
+### 18. Pinned / Favorite Vessels
+- **Feature:** Star/pin vessels to a "watch list" persisted in localStorage
+- **Display:** Pinned vessels shown at top of fleet lists and sidebar panel
 
-export interface Cargo {
-  description: string;
-  weight: number;
-  unit: 'kg' | 'lb';
-  volume: number;  // m³
-  containers: number;
-}
+### 19. Multiple Export Formats
+- **Current:** CSV export only (in shipments.ts)
+- **Feature:** Add JSON, GeoJSON (for GIS tools), and PDF report export
 
-export interface ShipmentEvent {
-  id: string;
-  timestamp: string;
-  location: string;
-  status: ShipmentStatus;
-  description: string;
-}
+### 20. Saved Filters & Views
+- **Feature:** Save filter combinations on Fleet/Shipments pages with custom names
+- **Persistence:** localStorage with named presets
 
-export interface Shipment {
-  id: string;
-  trackingId: string;
-  carrier: string;
-  mode: ShipmentMode;
-  status: ShipmentStatus;
-  origin: PortRef;
-  destination: PortRef;
-  etd: string;
-  eta: string;
-  ata: string | null;
-  cargo: Cargo;
-  shipper: { name: string; contact: string };
-  consignee: { name: string; contact: string };
-  events: ShipmentEvent[];
-  documentIds: string[];
-  alertIds: string[];
-}
-```
+### 21. Loading Skeletons & Improved Empty States
+- **Current:** Flat "No data" / "Waiting..." messages
+- **Feature:** Animated skeleton loaders matching card/grid shapes while AIS connects
+- **Effort:** Low — pure CSS skeleton animations
 
-```typescript
-// types/alert.ts
-export type AlertType =
-  | 'delay_detected' | 'customs_hold' | 'vessel_deviation'
-  | 'sla_breach_risk' | 'document_missing'
-  | 'delivery_confirmed' | 'weather_advisory';
-
-export type AlertSeverity = 'critical' | 'warning' | 'info';
-
-export interface Alert {
-  id: string;
-  shipmentId: string | null;
-  type: AlertType;
-  severity: AlertSeverity;
-  message: string;
-  timestamp: string;
-  read: boolean;
-  acknowledged: boolean;
-}
-```
-
-```typescript
-// types/state.ts
-export interface AppState {
-  theme: 'dark' | 'light';
-  shipments: Shipment[];
-  fleet: Vessel[];
-  ports: Port[];
-  alerts: Alert[];
-  documents: ShippingDocument[];
-  settings: UserSettings;
-  ui: {
-    currentPage: string;
-    sidebarCollapsed: boolean;
-    activeShipmentId: string | null;
-  };
-}
-```
+### 22. Mobile Responsive Layout
+- **Current:** Sidebar and grid assume desktop width (240px sidebar + content)
+- **Feature:** Collapsed mobile nav, stacked grids, responsive typography
+- **Target:** Tablet and mobile breakpoints at 768px and 480px
 
 ---
 
-## 6. Feature Breakdown
+## ⚡ Priority 4: Performance
 
-### 6.1 📊 Dashboard (Home)
+### 23. Virtual Scrolling for Fleet Table
+- **Current:** Hard-capped at 100 rows with `slice(0, 100)`
+- **Feature:** Virtual scrolling to handle thousands of vessels with constant DOM size
+- **Library:** Write lightweight custom virtual scroller or use `clusterize.js`
 
-**KPI Strip (top row, 4 cards):**
-| Metric | Visual | Accent |
-|---|---|---|
-| Active Shipments | Large number + sparkline | Neutral |
-| On-Time Rate | Ring gauge % | Green (≥90%) / Red (<80%) |
-| Delayed Shipments | Count + delta vs yesterday | Red |
-| Revenue This Month | $ value + trend arrow | Green / Red |
+### 24. Web Worker for AIS Data Processing
+- **Current:** `liveShipsMap` operations on main thread (JSON parse + Map set on every message)
+- **Feature:** Move AIS message parsing and map merging to a Web Worker
+- **Benefit:** Eliminates UI jank during high-volume AIS data bursts
 
-**Content Grid (2×2):**
-- **Shipments by Status** — Horizontal stacked bar (In Transit, At Port, Delivered, Delayed, Customs Hold)
-- **Route Performance** — Line chart: on-time % over 30 days
-- **Top Carriers by Volume** — Ranked list with mini progress bars
-- **Recent Alerts** — Last 5 alerts with severity icon + timestamp
+### 25. Debounced / requestAnimationFrame Store Updates
+- **Current:** Store notifies all listeners on every `setState()` — could be 500+ updates/sec
+- **Feature:** Batch store notifications with `requestAnimationFrame` or throttle at 30fps
+- **Effort:** Medium — modify store's `notify()` method
 
----
-
-### 6.2 📦 Shipments
-
-**Toolbar:** Search · Filter (Status, Carrier, Origin, Destination, Date range) · Export CSV · New Shipment button
-
-**Table Columns:**
-| Column | Type |
-|---|---|
-| Tracking ID | Monospace badge, clickable |
-| Origin → Destination | Flag icons + port codes |
-| Carrier | Logo placeholder + name |
-| Mode | Icon (🚢 Sea · ✈️ Air · 🚛 Road · 🚂 Rail) |
-| Status | Colored badge |
-| ETA | Date + countdown |
-| Last Update | Relative time |
-| Actions | ⋯ menu |
-
-**Detail Drawer / Modal:**
-- Full shipment metadata (shipper, consignee, cargo, weight, volume)
-- Live event timeline (Picked Up → In Transit → At Port → Customs → Out for Delivery → Delivered)
-- Attached documents list
-- Carrier contact info
-- Notes / comments thread
+### 26. Dynamic Import (Code Splitting) for Pages
+- **Current:** All 8 page modules eagerly imported in `main.ts` — increases initial bundle
+- **Feature:** Use `import()` dynamic imports when route resolves
+- **Effort:** Low-Medium — modify router to accept lazy `() => import(...)` modules
 
 ---
 
-### 6.3 🗺️ Live Tracking
+## 🏗️ Priority 5: Architecture & Extensibility
 
-- **World map** (Leaflet.js with `@types/leaflet`, dark/light tile layers)
-- Animated vessel/vehicle markers with typed tooltip popups
-- Route polylines (completed = solid, upcoming = dashed)
-- Cluster grouping when zoomed out
-- Sidebar panel: searchable shipment list; clicking selects & centers on map
-- Port markers with congestion color coding
-- Filter by mode, status, carrier
+### 27. Component Lifecycle System
+- **Current:** Each page is a monolithic `render()` that replaces innerHTML
+- **Feature:** Create a lightweight component base with `onMount()`, `onUnmount()`, `onUpdate()` lifecycle hooks
+- **Benefit:** Clean up intervals/subscriptions automatically
 
----
+### 28. Store Middleware Pipeline
+- **Current:** Store is bare Pub/Sub with no hooks
+- **Feature:** Add middleware chain for:
+  - `persistMiddleware` — auto-save to localStorage
+  - `loggerMiddleware` — dev console logging
+  - `undoMiddleware` — state history for undo/redo
 
-### 6.4 🚢 Fleet Management
+### 29. Service Layer for External APIs
+- **Current:** AIS connection logic mixed with store updates in `data/ais.ts`
+- **Feature:** Create dedicated service modules under `src/services/`:
+  - `ais.service.ts` — WebSocket connection management
+  - `weather.service.ts` — weather API integration
+  - `ports.service.ts` — port schedule API
+  - `customs.service.ts` — customs status API
 
-**Vessel/Vehicle Cards grid:**
-- Name, type, flag, current location
-- Capacity utilization bar (green/red)
-- Current voyage / next voyage
-- Maintenance status badge
-
-**Fleet Table view toggle:**
-- Sortable by utilization, status, ETA
-- Generic `DataTable<Vessel>` component
-
----
-
-### 6.5 ⚓ Ports & Routes
-
-**Port Status Table:**
-| Column | Type |
-|---|---|
-| Port Name | + country flag |
-| Country | |
-| Congestion Level | Low / Medium / High badge |
-| Avg Dwell Time | Days |
-| Open Berths | Count |
-| Current Vessels | Count |
-| Weather Alert | Icon + tooltip |
-
-**Route Analytics:**
-- Origin–Destination pair selector
-- Transit time trend chart (last 12 months)
-- Cost per kg trend
+### 30. CSS Module Scoping
+- **Current:** All CSS is global — risk of class name collisions
+- **Feature:** Convert to CSS Modules (`.module.css`) for component-scoped styles
+- **Vite support:** Built-in — just rename files
 
 ---
 
-### 6.6 📄 Documents
+## 🌐 Priority 6: Integrations & Ecosystem
 
-**Categories:** Bill of Lading · Commercial Invoice · Packing List · Customs Declaration · Certificate of Origin · Insurance
+### 31. Port Schedule API Integration
+- **Feature:** Pull real port schedules from PortXChange, MarineTraffic, or Free Port API
+- **Display:** Show upcoming vessel arrivals/departures per port
 
-**Features:**
-- Upload via drag-and-drop
-- Link documents to shipments
-- Status: Draft → Submitted → Approved / Rejected
-- Preview modal (PDF viewer iframe)
-- Download / Delete / Share
+### 32. Customs Status Tracking
+- **Feature:** Integrate with customs clearance APIs to auto-update document statuses
+- **Workflow:** Submitted → In Review → Cleared → Released
 
----
+### 33. Carbon Footprint Calculator
+- **Feature:** Estimate CO₂ emissions per shipment/voyage
+- **Formula:** Distance × fuel consumption × emission factor (vessel type dependent)
+- **Display:** Show in shipment detail and fleet card
 
-### 6.7 🔔 Alert Center
+### 34. i18n / Multi-Language Support
+- **Feature:** Add locale switching for global logistics teams
+- **Framework:** Use `i18next` or lightweight custom implementation
+- **Initial languages:** English, Chinese, Arabic, Spanish
 
-**Alert Types:**
-| Type | Accent |
-|---|---|
-| Delay Detected | Red |
-| Customs Hold | Amber |
-| Vessel Deviation | Amber |
-| SLA Breach Risk | Red |
-| Document Missing | Amber |
-| Delivery Confirmed | Green |
-| Weather Advisory | Blue |
-
-**Features:**
-- Grouped by severity (Critical · Warning · Info)
-- Mark as Read / Acknowledge / Dismiss
-- Filter by shipment, carrier, date
-- Alert count badge on sidebar icon
+### 35. "System" Theme Option
+- **Current:** Only dark/light toggle
+- **Feature:** Add "System" option that follows OS preference via `prefers-color-scheme` media query
+- **Effort:** Low — add media query listener
 
 ---
 
-### 6.8 ⚙️ Settings
+## 📊 Effort vs. Impact Matrix
 
-- **Theme:** Dark / Light toggle (persisted to `localStorage`)
-- **Default Map Style:** Dark tiles / Light tiles / Satellite
-- **Notifications:** Toggle types on/off
-- **Date Format:** DD/MM/YYYY · MM/DD/YYYY · ISO 8601
-- **Currency:** USD · EUR · GBP · AED
-- **Units:** Metric / Imperial
-- **API Keys:** Carrier API key management (masked display)
-- **Account:** User profile, role display
-
----
-
-## 7. Phased Build Plan
-
-### Phase 1 — Scaffold + Design System (Day 1)
-- [ ] `npm create vite@latest . -- --template vanilla-ts`
-- [ ] Configure `tsconfig.json` (strict, path aliases)
-- [ ] Build CSS token + base + layout system
-- [ ] Sidebar nav (typed route config, icon map)
-- [ ] Topbar (search, theme toggle, alert bell, user avatar)
-- [ ] Typed hash router
-- [ ] Typed mock data generator
-
-### Phase 2 — Dashboard & Shipments (Day 2)
-- [ ] KPI cards with animated counters
-- [ ] Chart.js typed wrapper + status bar chart
-- [ ] 30-day trend line chart
-- [ ] Generic `DataTable<T>` component
-- [ ] Shipments table with search + filter
-- [ ] Shipment detail drawer with event timeline
-
-### Phase 3 — Tracking & Fleet (Day 3)
-- [ ] Leaflet map with `@types/leaflet`
-- [ ] Vessel markers, route polylines, port circles
-- [ ] Fleet grid + table view
-- [ ] Capacity utilization components
-
-### Phase 4 — Ports, Documents & Alerts (Day 4)
-- [ ] Port status table + congestion badges
-- [ ] Document vault: upload UI, status badges, preview modal
-- [ ] Alert center: grouped list, severity styling, badge counts
-
-### Phase 5 — Settings, Polish & QA (Day 5)
-- [ ] Settings page (theme, format, units, API keys)
-- [ ] All animations & transitions
-- [ ] Responsive breakpoints (1280px / 768px / mobile)
-- [ ] Empty states, loading skeletons, error states
-- [ ] Accessibility pass (ARIA labels, keyboard nav, focus rings)
-- [ ] ESLint + Prettier pass
-- [ ] Final cross-browser QA
+| Feature | Effort | Impact | Category |
+|---------|--------|--------|----------|
+| Type safety for liveFleet | Low | High | Tech Debt |
+| Extract shared ship utils | Low | High | Tech Debt |
+| Interval/memory cleanup | Low | Critical | Tech Debt |
+| Toast notifications | Medium | High | UX |
+| Map marker clustering | Low | High | Perf |
+| Loading skeletons | Low | Medium | UX |
+| Virtual scrolling | Medium | High | Perf |
+| Web Worker AIS | High | High | Perf |
+| Weather overlay | Medium | Medium | Feature |
+| Vessel track history | Medium | High | Feature |
+| Push notifications | Medium | Medium | Feature |
+| Mobile responsive | High | High | UX |
+| Component lifecycle | High | High | Arch |
+| Dynamic imports | Low | Medium | Perf |
+| Store middleware | Medium | Medium | Arch |
+| CSS Modules | High | Medium | Arch |
+| Carbon calculator | Medium | Medium | Feature |
+| ETA prediction | Medium | High | Feature |
 
 ---
 
-## 8. Key Dependencies
+## Quick Wins (Can be done in <1 hour each)
 
-| Package | Purpose |
-|---|---|
-| `vite` | Build tool & dev server |
-| `typescript` | Language |
-| `chart.js` | KPI charts, trend lines |
-| `leaflet` + `@types/leaflet` | Interactive world map |
-| `lucide` | Tree-shakeable SVG icons |
-| `eslint` + `typescript-eslint` | Linting |
-| `prettier` | Formatting |
-
----
-
-## 9. Non-Functional Requirements
-
-| Concern | Approach |
-|---|---|
-| **Type Safety** | `strict: true`, no `any`, all data models typed |
-| **Performance** | Virtualized table rows for 1000+ shipments |
-| **Responsiveness** | CSS Grid + clamp(), sidebar collapses on mobile |
-| **Accessibility** | WCAG 2.1 AA contrast, keyboard nav, ARIA |
-| **State Persistence** | Theme, filters, settings → `localStorage` (typed wrapper) |
-| **Extensibility** | API layer abstracted; mock → real API is a one-file swap |
+1. ✅ Create `src/utils/ship.ts` with shared type/nav helpers → eliminates 100+ lines of dup code
+2. ✅ Add proper `LiveVessel` type → remove `any[]` from state.ts
+3. ✅ Fix map theme sync → subscribe to store theme changes
+4. ✅ Add loading skeleton CSS → improved perceived performance
+5. ✅ Fix dashboard interval cleanup → add onUnmount pattern
+6. ✅ Add `system` theme option → follow OS preference
+7. ✅ Port congestion heatmap → reuse existing data on tracking map
+8. ✅ Keyboard shortcuts cheat sheet → press `?` key
+9. ✅ Multiple export formats (JSON, GeoJSON)
+10. ✅ Saved filters with localStorage

@@ -3,32 +3,13 @@
 // ============================================================
 
 import { store } from '@/store';
-import { router } from '@/router';
 import { Chart, registerables } from 'chart.js';
+import { getShipTypeLabel, getNavStatus } from '@/utils/ship';
 Chart.register(...registerables);
 
 let typeChart: Chart | null = null;
 let statusChart: Chart | null = null;
 let dashboardInterval: any = null;
-
-function getShipTypeLabel(type: number): string {
-  if (type >= 70 && type <= 79) return 'Cargo';
-  if (type >= 80 && type <= 89) return 'Tanker';
-  if (type >= 60 && type <= 69) return 'Passenger';
-  if (type >= 30 && type <= 39) return 'Fishing';
-  if (type >= 40 && type <= 49) return 'High Speed';
-  if (type >= 50 && type <= 59) return 'Special Craft';
-  return 'Other';
-}
-
-function getNavStatusLabel(status: number): string {
-  const map: Record<number, string> = {
-    0: 'Under Way', 1: 'At Anchor', 2: 'Not Command',
-    3: 'Restricted', 4: 'Constrained', 5: 'Moored',
-    6: 'Aground', 7: 'Fishing', 8: 'Sailing',
-  };
-  return map[status] || 'Unknown';
-}
 
 export function renderDashboard(): void {
   const content = document.getElementById('page-content');
@@ -150,7 +131,7 @@ export function renderDashboard(): void {
 function updateDashboardData() {
   const state = store.getState();
   const fleet = state.liveFleet || [];
-  
+
   const statusEl = document.getElementById('dash-ais-status');
   if (statusEl) {
     statusEl.className = `badge ${state.aisStatus === 'live' ? 'badge-green' : 'badge-neutral'}`;
@@ -161,7 +142,7 @@ function updateDashboardData() {
 
   const total = fleet.length;
   const underWay = fleet.filter(s => s.navStatus === 0 || s.navStatus === 8);
-  
+
   let speedSum = 0;
   let speedCount = 0;
   fleet.forEach(s => {
@@ -194,7 +175,7 @@ function updateDashboardData() {
 
   if (statusChart) {
     const navCount: Record<string, number> = {};
-    fleet.forEach(s => { const l = getNavStatusLabel(s.navStatus); navCount[l] = (navCount[l] || 0) + 1; });
+    fleet.forEach(s => { const l = getNavStatus(s.navStatus); navCount[l] = (navCount[l] || 0) + 1; });
     // Sort by count
     const sortedNav = Object.entries(navCount).sort((a, b) => b[1] - a[1]).slice(0, 6);
     statusChart.data.labels = sortedNav.map(n => n[0]);

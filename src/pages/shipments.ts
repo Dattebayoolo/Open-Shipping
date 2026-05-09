@@ -3,53 +3,18 @@
 // ============================================================
 
 import { store } from '@/store';
+import { getShipTypeInfo, getNavStatusLong, relativeTime, formatDimensions } from '@/utils/ship';
 
 let filteredShips: any[] = [];
 let searchQuery = '';
 let typeFilter = 'all';
 let unsubscribe: (() => void) | null = null;
 
-function getShipTypeInfo(type: number): { label: string; color: string } {
-  if (!type) return { label: 'Unknown', color: '#888' };
-  if (type >= 70 && type <= 79) return { label: 'Cargo', color: '#10b981' };
-  if (type >= 80 && type <= 89) return { label: 'Tanker', color: '#ef4444' };
-  if (type >= 60 && type <= 69) return { label: 'Passenger', color: '#3b82f6' };
-  if (type >= 30 && type <= 39) return { label: 'Fishing', color: '#f59e0b' };
-  if (type >= 40 && type <= 49) return { label: 'High Speed', color: '#8b5cf6' };
-  if (type >= 50 && type <= 59) return { label: 'Special Craft', color: '#06b6d4' };
-  return { label: 'Other', color: '#94a3b8' };
-}
-
-function getNavStatus(status: number): string {
-  const map: Record<number, string> = {
-    0: 'Under way using engine',
-    1: 'At anchor',
-    2: 'Not under command',
-    3: 'Restricted maneuverability',
-    4: 'Constrained by draught',
-    5: 'Moored',
-    6: 'Aground',
-    7: 'Engaged in fishing',
-    8: 'Under way sailing',
-  };
-  return map[status] || 'Unknown status';
-}
-
-function relativeTime(date: Date): string {
-  const diff = Date.now() - date.getTime();
-  const sec = Math.floor(diff / 1000);
-  if (sec < 60) return 'Just now';
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `${min}m ago`;
-  return `${Math.floor(min / 60)}h ago`;
-}
-
 export function renderShipments(): void {
   const content = document.getElementById('page-content');
   if (!content) return;
 
-  // Clear state on re-render to avoid duplicates if disconnected
-  liveShips.clear();
+  // Clear state on re-render
   filteredShips = [];
 
   content.innerHTML = `
@@ -63,9 +28,17 @@ export function renderShipments(): void {
           </p>
         </div>
         <div class="page-actions">
-          <button class="btn btn-secondary btn-sm" id="export-btn">
+          <button class="btn btn-secondary btn-sm" id="export-csv-btn">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             Export CSV
+          </button>
+          <button class="btn btn-secondary btn-sm" id="export-json-btn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Export JSON
+          </button>
+          <button class="btn btn-secondary btn-sm" id="export-geojson-btn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/></svg>
+            Export GeoJSON
           </button>
         </div>
       </div>
@@ -84,6 +57,13 @@ export function renderShipments(): void {
           <option value="Fishing" ${typeFilter === 'Fishing' ? 'selected' : ''}>Fishing</option>
           <option value="High Speed" ${typeFilter === 'High Speed' ? 'selected' : ''}>High Speed</option>
         </select>
+        <!-- Saved filters dropdown -->
+        <select class="filter-select" id="saved-filters" style="margin-left:var(--space-2)">
+          <option value="">Saved Filters</option>
+        </select>
+        <button class="btn btn-ghost btn-sm" id="save-filter-btn" title="Save current filter">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+        </button>
         <span id="result-count" style="font-size:var(--text-sm);color:var(--text-muted);margin-left:auto">0 vessels</span>
       </div>
 
@@ -126,29 +106,59 @@ export function renderShipments(): void {
   `;
 
   bindEvents();
-  
+  loadSavedFilters();
+
   if (unsubscribe) unsubscribe();
   unsubscribe = store.subscribe(updateFromStore);
   updateFromStore(store.getState());
 }
 
+// ── Saved Filters (localStorage) ────────────────────────────
+function loadSavedFilters(): void {
+  const sel = document.getElementById('saved-filters') as HTMLSelectElement;
+  if (!sel) return;
+  const saved = JSON.parse(localStorage.getItem('savedFilters') || '[]') as { name: string; query: string; type: string }[];
+  sel.innerHTML = '<option value="">Saved Filters</option>' + saved.map((f, i) => `<option value="${i}">${f.name}</option>`).join('');
+  sel.addEventListener('change', () => {
+    const idx = parseInt(sel.value);
+    if (isNaN(idx)) return;
+    const filter = saved[idx];
+    if (!filter) return;
+    searchQuery = filter.query;
+    typeFilter = filter.type;
+    const searchInput = document.getElementById('ship-search') as HTMLInputElement;
+    const typeSelect = document.getElementById('type-filter') as HTMLSelectElement;
+    if (searchInput) searchInput.value = searchQuery;
+    if (typeSelect) typeSelect.value = typeFilter;
+    applyFilter();
+  });
+}
+
+function saveCurrentFilter(): void {
+  const name = prompt('Name this filter:');
+  if (!name) return;
+  const saved = JSON.parse(localStorage.getItem('savedFilters') || '[]') as { name: string; query: string; type: string }[];
+  saved.push({ name, query: searchQuery, type: typeFilter });
+  localStorage.setItem('savedFilters', JSON.stringify(saved));
+  loadSavedFilters();
+}
+
+// ── Store subscription ──────────────────────────────────────
 function updateFromStore(state: any) {
   const statusEl = document.getElementById('ship-ais-status');
   if (statusEl) {
     statusEl.className = `badge ${state.aisStatus === 'live' ? 'badge-green' : 'badge-neutral'}`;
     statusEl.textContent = state.aisStatus === 'live' ? 'Live AIS Connected' : state.aisStatus;
   }
-  
+
   applyFilter();
 }
-
-
 
 function applyFilter(): void {
   const q = searchQuery.toLowerCase();
   const state = store.getState();
   const fleet = state.liveFleet || [];
-  
+
   filteredShips = fleet.filter(s => {
     const typeInfo = getShipTypeInfo(s.type);
     const matchSearch = !q ||
@@ -164,7 +174,7 @@ function applyFilter(): void {
   filteredShips.sort((a, b) => (b.updated?.getTime() || 0) - (a.updated?.getTime() || 0));
 
   renderTable();
-  
+
   const count = document.getElementById('result-count');
   if (count) count.textContent = `${filteredShips.length} vessels`;
 }
@@ -194,7 +204,7 @@ function renderTable(): void {
         <span class="badge badge-neutral" style="background:${typeInfo.color}20;color:${typeInfo.color};border-color:${typeInfo.color}40">${typeInfo.label}</span>
       </td>
       <td>
-        <div style="font-size:var(--text-sm)">${getNavStatus(s.navStatus)}</div>
+        <div style="font-size:var(--text-sm)">${getNavStatusLong(s.navStatus)}</div>
       </td>
       <td>
         <div style="font-variant-numeric:tabular-nums;font-weight:500">${s.sog !== undefined ? s.sog.toFixed(1) + ' kn' : '--'}</div>
@@ -240,16 +250,10 @@ function openDrawer(mmsi: number): void {
   if (!drawer || !overlay || !title || !subtitle || !body) return;
 
   const typeInfo = getShipTypeInfo(ship.type);
+  const dims = formatDimensions(ship.dim);
 
   title.textContent = ship.name;
   subtitle.textContent = `MMSI: ${ship.mmsi} ${ship.callsign ? '· ' + ship.callsign : ''}`;
-
-  let dims = '--';
-  if (ship.dim && (ship.dim.A || ship.dim.B)) {
-    const len = ship.dim.A + ship.dim.B;
-    const wid = ship.dim.C + ship.dim.D;
-    dims = `${len}m × ${wid}m`;
-  }
 
   body.innerHTML = `
     <div style="display:flex;flex-direction:column;gap:var(--space-5)">
@@ -257,7 +261,7 @@ function openDrawer(mmsi: number): void {
       <!-- Status + Mode -->
       <div style="display:flex;gap:var(--space-2)">
         <span class="badge badge-neutral" style="background:${typeInfo.color}20;color:${typeInfo.color};border-color:${typeInfo.color}40">${typeInfo.label}</span>
-        <span class="badge badge-neutral">${getNavStatus(ship.navStatus)}</span>
+        <span class="badge badge-neutral">${getNavStatusLong(ship.navStatus)}</span>
       </div>
 
       <!-- Route -->
@@ -314,11 +318,101 @@ function openDrawer(mmsi: number): void {
         </div>
       </div>
 
+      <!-- ETA Prediction -->
+      <div>
+        <h4 style="font-size:var(--text-sm);font-weight:var(--weight-semibold);margin-bottom:var(--space-3);color:var(--text-secondary)">ETA PREDICTION</h4>
+        <div id="eta-prediction" style="background:var(--bg-elevated);border-radius:var(--radius-md);padding:var(--space-3);border:1px solid var(--border)">
+          ${calculateETA(ship)}
+        </div>
+      </div>
+
     </div>
   `;
 
   drawer.classList.add('open');
   overlay.classList.remove('hidden');
+}
+
+// ── ETA Prediction ──────────────────────────────────────────
+function calculateETA(ship: any): string {
+  if (!ship.lat || !ship.lng || !ship.destination || !ship.sog || ship.sog <= 0) {
+    return '<div style="font-size:var(--text-sm);color:var(--text-muted)">Insufficient data for ETA calculation</div>';
+  }
+
+  // Simple Haversine to a rough destination coordinate
+  // Since we don't have dest lat/lng, estimate based on common routes
+  const DEST_COORDS: Record<string, [number, number]> = {
+    'SINGAPORE': [1.3521, 103.8198],
+    'SHANGHAI': [31.2304, 121.4737],
+    'ROTTERDAM': [51.9244, 4.4777],
+    'HONG KONG': [22.3193, 114.1694],
+    'SHENZHEN': [22.5431, 114.0579],
+    'BUSAN': [35.1796, 129.0756],
+    'NINGBO': [29.8683, 121.5440],
+    'QINGDAO': [36.0671, 120.3826],
+    'JEBEL ALI': [25.0108, 55.0583],
+    'ANTWERP': [51.2213, 4.3997],
+    'HAMBURG': [53.5511, 9.9937],
+    'LOS ANGELES': [33.7489, -118.2469],
+    'LONG BEACH': [33.7701, -118.1937],
+    'NEW YORK': [40.7128, -74.0060],
+    'HOUSTON': [29.7604, -95.3698],
+    'MUMBAI': [18.9438, 72.8226],
+    'PIRAEUS': [37.9426, 23.6469],
+    'VALENCIA': [39.4699, -0.3763],
+    'FELIXSTOWE': [51.9638, 1.3513],
+  };
+
+  const dest = ship.destination.toUpperCase().trim();
+  let destCoords: [number, number] | null = null;
+
+  // Try exact match, then partial match
+  if (DEST_COORDS[dest]) {
+    destCoords = DEST_COORDS[dest];
+  } else {
+    for (const [key, coords] of Object.entries(DEST_COORDS)) {
+      if (dest.includes(key) || key.includes(dest)) {
+        destCoords = coords;
+        break;
+      }
+    }
+  }
+
+  if (!destCoords) {
+    return '<div style="font-size:var(--text-sm);color:var(--text-muted)">Destination coordinates unknown for ETA calculation</div>';
+  }
+
+  // Haversine distance
+  const R = 6371; // km
+  const dLat = (destCoords[0] - ship.lat) * Math.PI / 180;
+  const dLon = (destCoords[1] - ship.lng) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(ship.lat * Math.PI / 180) * Math.cos(destCoords[0] * Math.PI / 180) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const distanceKm = R * c;
+
+  // Speed in km/h (1 knot = 1.852 km/h)
+  const speedKmh = ship.sog * 1.852;
+  const hoursRemaining = distanceKm / speedKmh;
+  const etaDate = new Date(Date.now() + hoursRemaining * 3600000);
+
+  return `
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:var(--space-2)">
+      <div>
+        <div style="font-size:var(--text-xs);color:var(--text-muted)">Distance</div>
+        <div style="font-size:var(--text-sm);font-weight:var(--weight-medium)">${Math.round(distanceKm).toLocaleString()} km</div>
+      </div>
+      <div>
+        <div style="font-size:var(--text-xs);color:var(--text-muted)">Est. Time</div>
+        <div style="font-size:var(--text-sm);font-weight:var(--weight-medium)">${Math.round(hoursRemaining)}h ${Math.round((hoursRemaining % 1) * 60)}m</div>
+      </div>
+      <div>
+        <div style="font-size:var(--text-xs);color:var(--text-muted)">Predicted ETA</div>
+        <div style="font-size:var(--text-sm);font-weight:var(--weight-medium)">${etaDate.toLocaleDateString()} ${etaDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+      </div>
+    </div>
+  `;
 }
 
 function closeDrawer(): void {
@@ -337,14 +431,51 @@ function bindEvents(): void {
   });
   document.getElementById('drawer-close')?.addEventListener('click', closeDrawer);
   document.getElementById('drawer-overlay')?.addEventListener('click', closeDrawer);
-  document.getElementById('export-btn')?.addEventListener('click', () => {
+
+  // Save filter
+  document.getElementById('save-filter-btn')?.addEventListener('click', saveCurrentFilter);
+
+  // Export CSV
+  document.getElementById('export-csv-btn')?.addEventListener('click', () => {
     const headers = ['Name', 'MMSI', 'Callsign', 'IMO', 'Type', 'NavStatus', 'SOG', 'COG', 'Lat', 'Lng', 'Destination'];
-    const rows = filteredShips.map(s => [
-      `"${s.name || ''}"`, s.mmsi, `"${s.callsign || ''}"`, s.imo || '', getShipTypeInfo(s.type).label, 
-      `"${getNavStatus(s.navStatus)}"`, s.sog, s.cog, s.lat, s.lng, `"${s.destination || ''}"`
+    const rows = filteredShips.map((s: any) => [
+      `"${s.name || ''}"`, s.mmsi, `"${s.callsign || ''}"`, s.imo || '', getShipTypeInfo(s.type).label,
+      `"${getNavStatusLong(s.navStatus)}"`, s.sog, s.cog, s.lat, s.lng, `"${s.destination || ''}"`
     ]);
     const csv = [headers, ...rows].map(r => r.join(',')).join('\n');
     const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([csv], { type: 'text/csv' })), download: 'live_fleet.csv' });
+    a.click();
+  });
+
+  // Export JSON
+  document.getElementById('export-json-btn')?.addEventListener('click', () => {
+    const json = JSON.stringify(filteredShips, null, 2);
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([json], { type: 'application/json' })), download: 'live_fleet.json' });
+    a.click();
+  });
+
+  // Export GeoJSON
+  document.getElementById('export-geojson-btn')?.addEventListener('click', () => {
+    const geojson = {
+      type: 'FeatureCollection',
+      features: filteredShips.map((s: any) => ({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [s.lng, s.lat] },
+        properties: {
+          name: s.name,
+          mmsi: s.mmsi,
+          callsign: s.callsign,
+          imo: s.imo,
+          type: getShipTypeInfo(s.type).label,
+          sog: s.sog,
+          cog: s.cog,
+          destination: s.destination,
+          navStatus: getNavStatusLong(s.navStatus),
+        }
+      }))
+    };
+    const json = JSON.stringify(geojson, null, 2);
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([json], { type: 'application/geo+json' })), download: 'live_fleet.geojson' });
     a.click();
   });
 }

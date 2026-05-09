@@ -5,7 +5,7 @@
 import type { Shipment, ShipmentMode, ShipmentStatus, ShipmentEvent } from '@/types/shipment';
 import type { Alert, AlertType, AlertSeverity } from '@/types/alert';
 import type { Vessel, VesselType, VesselStatus } from '@/types/fleet';
-import type { Port, Route, CongestionLevel } from '@/types/port';
+import type { Port, Route } from '@/types/port';
 import type { ShippingDocument, DocumentType, DocumentStatus } from '@/types/document';
 import type { AppState } from '@/types/state';
 

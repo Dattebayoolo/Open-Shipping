@@ -47,8 +47,12 @@ class Router {
       // Dispatch route change event
       window.dispatchEvent(new CustomEvent('routechange', { detail: route }));
     } else {
-      // Default to dashboard
-      this.navigate('/');
+      if (this.notFoundHandler) {
+        this.notFoundHandler();
+      } else {
+        // Default to dashboard
+        this.navigate('/');
+      }
     }
   }
 

@@ -3,30 +3,7 @@
 // ============================================================
 
 import { store } from '@/store';
-
-const TYPE_EMOJI: Record<string, string> = {
-  Cargo: '🚢', Tanker: '⛽', Passenger: '🛳️', Fishing: '🎣', 'High Speed': '🚤', 'Special Craft': '🛥️', Other: '⚓'
-};
-
-function getShipTypeInfo(type: number): { label: string; color: string } {
-  if (!type) return { label: 'Unknown', color: '#888' };
-  if (type >= 70 && type <= 79) return { label: 'Cargo', color: '#10b981' };
-  if (type >= 80 && type <= 89) return { label: 'Tanker', color: '#ef4444' };
-  if (type >= 60 && type <= 69) return { label: 'Passenger', color: '#3b82f6' };
-  if (type >= 30 && type <= 39) return { label: 'Fishing', color: '#f59e0b' };
-  if (type >= 40 && type <= 49) return { label: 'High Speed', color: '#8b5cf6' };
-  if (type >= 50 && type <= 59) return { label: 'Special Craft', color: '#06b6d4' };
-  return { label: 'Other', color: '#94a3b8' };
-}
-
-function getNavStatus(status: number): string {
-  const map: Record<number, string> = {
-    0: 'Under way', 1: 'At anchor', 2: 'Not under command',
-    3: 'Restricted', 4: 'Constrained', 5: 'Moored',
-    6: 'Aground', 7: 'Fishing', 8: 'Sailing',
-  };
-  return map[status] || 'Unknown';
-}
+import { getShipTypeInfo, getNavStatus, TYPE_EMOJI, formatDimensions } from '@/utils/ship';
 
 function generateRandomUtilization(mmsi: number): number {
   // Deterministic random based on MMSI
@@ -87,7 +64,7 @@ export function renderFleet(): void {
 function updateFromStore(state: any) {
   // Keep only the first 60 ships for the grid to avoid blowing up the DOM
   currentFleet = (state.liveFleet || []).slice(0, 60);
-  
+
   const countEl = document.getElementById('fleet-count');
   if (countEl) countEl.textContent = `${state.liveFleet?.length || 0} vessels tracked`;
 
@@ -125,17 +102,15 @@ function renderFleetContent(): void {
     container.innerHTML = `
       <div class="grid-3">
         ${currentFleet.map((v, i) => {
-          const typeInfo = getShipTypeInfo(v.type);
-          const util = generateRandomUtilization(v.mmsi);
-          const utilClass = util >= 90 ? 'high' : util >= 70 ? 'med' : '';
-          
-          let dims = '--';
-          if (v.dim && (v.dim.A || v.dim.B)) dims = `${v.dim.A + v.dim.B}m`;
+      const typeInfo = getShipTypeInfo(v.type);
+      const util = generateRandomUtilization(v.mmsi);
+      const utilClass = util >= 90 ? 'high' : util >= 70 ? 'med' : '';
+      const dims = formatDimensions(v.dim);
 
-          return `
+      return `
             <div class="fleet-card stagger-${Math.min(i + 1, 6)}">
               <div class="fleet-card-header">
-                <div class="vessel-icon">${TYPE_EMOJI[typeInfo.label] ?? '🚢'}</div>
+                <div class="vessel-icon">${TYPE_EMOJI[typeInfo.label] ?? '\u{1F6A2}'}</div>
                 <div style="flex:1;min-width:0">
                   <div style="font-weight:var(--weight-semibold);font-size:var(--text-sm);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${v.name}">${v.name}</div>
                   <div style="font-size:var(--text-xs);color:var(--text-muted)">IMO: ${v.imo || '--'} · ${typeInfo.label}</div>
@@ -168,7 +143,7 @@ function renderFleetContent(): void {
               </div>
             </div>
           `;
-        }).join('')}
+    }).join('')}
       </div>
     `;
   } else {
@@ -183,13 +158,12 @@ function renderFleetContent(): void {
           </thead>
           <tbody>
             ${currentFleet.map(v => {
-              const typeInfo = getShipTypeInfo(v.type);
-              let dims = '--';
-              if (v.dim && (v.dim.A || v.dim.B)) dims = `${v.dim.A + v.dim.B}m`;
-              return `
+      const typeInfo = getShipTypeInfo(v.type);
+      const dims = formatDimensions(v.dim);
+      return `
                 <tr>
                   <td style="font-weight:var(--weight-medium);max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${v.name}">${v.name}</td>
-                  <td><span class="mode-badge">${TYPE_EMOJI[typeInfo.label] ?? '🚢'} ${typeInfo.label}</span></td>
+                  <td><span class="mode-badge">${TYPE_EMOJI[typeInfo.label] ?? '\u{1F6A2}'} ${typeInfo.label}</span></td>
                   <td>
                     <div style="font-family:'JetBrains Mono',monospace;font-size:11px">${v.mmsi}</div>
                     <div style="font-size:10px;color:var(--text-muted)">${v.callsign || ''}</div>
@@ -200,7 +174,7 @@ function renderFleetContent(): void {
                   <td style="color:var(--text-secondary)">${dims}</td>
                 </tr>
               `;
-            }).join('')}
+    }).join('')}
           </tbody>
         </table>
       </div>

@@ -4,6 +4,7 @@
 
 import { store } from '@/store';
 import L from 'leaflet';
+import { getShipTypeInfo, formatDimensions } from '@/utils/ship';
 
 let mapInstance: L.Map | null = null;
 const liveMarkers: Map<number, L.Marker> = new Map();
@@ -24,20 +25,27 @@ export function renderTracking(): void {
           </p>
         </div>
         <div class="page-actions">
-          <!-- Real-time filters could go here -->
+          <button class="btn btn-secondary btn-sm" id="fullscreen-map-btn" title="Fullscreen Map">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+            Fullscreen
+          </button>
+          <button class="btn btn-secondary btn-sm" id="weather-toggle" title="Toggle Weather Overlay">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
+            Weather
+          </button>
         </div>
       </div>
 
       <div style="display:flex;gap:var(--space-4);flex:1;min-height:0">
         <!-- Map -->
-        <div style="flex:1;min-width:0;border-radius:var(--radius-lg);overflow:hidden;border:1px solid var(--border)">
+        <div style="flex:1;min-width:0;border-radius:var(--radius-lg);overflow:hidden;border:1px solid var(--border)" id="map-container">
           <div id="map" style="width:100%;height:100%"></div>
         </div>
 
         <!-- Sidebar panel -->
         <div style="width:280px;flex-shrink:0;background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-lg);display:flex;flex-direction:column;overflow:hidden">
           <div style="padding:var(--space-3) var(--space-4);border-bottom:1px solid var(--border)">
-            <input type="text" id="track-search" placeholder="Search shipments…" style="width:100%" />
+            <input type="text" id="track-search" placeholder="Search vessels…" style="width:100%" />
           </div>
           <div id="track-list" style="flex:1;overflow-y:auto;padding:var(--space-2)"></div>
         </div>
@@ -46,13 +54,13 @@ export function renderTracking(): void {
       <!-- Legend -->
       <div style="display:flex;gap:var(--space-4);margin-top:var(--space-3);flex-wrap:wrap">
         ${[
-          { l: 'Cargo', c: '#10b981' },
-          { l: 'Tanker', c: '#ef4444' },
-          { l: 'Passenger', c: '#3b82f6' },
-          { l: 'Fishing', c: '#f59e0b' },
-          { l: 'High Speed', c: '#8b5cf6' },
-          { l: 'Other Live', c: '#94a3b8' }
-        ].map(({l, c}) => `
+      { l: 'Cargo', c: '#10b981' },
+      { l: 'Tanker', c: '#ef4444' },
+      { l: 'Passenger', c: '#3b82f6' },
+      { l: 'Fishing', c: '#f59e0b' },
+      { l: 'High Speed', c: '#8b5cf6' },
+      { l: 'Other Live', c: '#94a3b8' }
+    ].map(({ l, c }) => `
           <div style="display:flex;align-items:center;gap:var(--space-2);font-size:var(--text-xs);color:var(--text-muted)">
             <svg viewBox="0 0 24 24" width="12" height="12"><path d="M12 2L4 10v10a2 2 0 002 2h12a2 2 0 002-2V10L12 2z" fill="${c}" stroke="#000" stroke-width="1.5"/></svg>
             ${l}
@@ -61,6 +69,26 @@ export function renderTracking(): void {
       </div>
     </div>
   `;
+
+  // Fullscreen map toggle
+  document.getElementById('fullscreen-map-btn')?.addEventListener('click', () => {
+    const mapContainer = document.getElementById('map-container');
+    if (!mapContainer) return;
+    if (!document.fullscreenElement) {
+      mapContainer.requestFullscreen();
+    } else {
+      document.exitFullscreen();
+    }
+  });
+
+  // Weather overlay toggle (placeholder - will add actual tile layer later)
+  let weatherVisible = false;
+  document.getElementById('weather-toggle')?.addEventListener('click', () => {
+    weatherVisible = !weatherVisible;
+    const btn = document.getElementById('weather-toggle');
+    if (btn) btn.style.opacity = weatherVisible ? '1' : '0.5';
+    // TODO: Add actual weather tile layer integration
+  });
 
   setTimeout(() => {
     initMap();
@@ -80,24 +108,13 @@ function updateAisStatus(status: string) {
 
 function updateFromStore(state: any) {
   updateAisStatus(state.aisStatus);
-  
+
   if (!mapInstance) return;
-  
+
   const fleet = state.liveFleet || [];
   fleet.forEach((ship: any) => updateLiveMarker(ship));
-  
-  renderTrackList(fleet);
-}
 
-function getShipTypeInfo(type: number): { label: string; color: string } {
-  if (!type) return { label: 'Unknown', color: '#888' };
-  if (type >= 70 && type <= 79) return { label: 'Cargo', color: '#10b981' };
-  if (type >= 80 && type <= 89) return { label: 'Tanker', color: '#ef4444' };
-  if (type >= 60 && type <= 69) return { label: 'Passenger', color: '#3b82f6' };
-  if (type >= 30 && type <= 39) return { label: 'Fishing', color: '#f59e0b' };
-  if (type >= 40 && type <= 49) return { label: 'High Speed', color: '#8b5cf6' };
-  if (type >= 50 && type <= 59) return { label: 'Special Craft', color: '#06b6d4' };
-  return { label: 'Other', color: '#94a3b8' };
+  renderTrackList(fleet);
 }
 
 function updateLiveMarker(ship: any) {
@@ -108,14 +125,7 @@ function updateLiveMarker(ship: any) {
   const speed = ship.sog !== undefined ? ship.sog.toFixed(1) : '--';
   const cog = ship.cog !== undefined ? ship.cog.toFixed(1) : '--';
   const heading = ship.heading && ship.heading !== 511 ? ship.heading + '°' : '--';
-
-  // Calculate length/width from Dimensions if available: A+B = length, C+D = width
-  let dims = '--';
-  if (ship.dim && (ship.dim.A || ship.dim.B)) {
-    const len = ship.dim.A + ship.dim.B;
-    const wid = ship.dim.C + ship.dim.D;
-    dims = `${len}m × ${wid}m`;
-  }
+  const dims = formatDimensions(ship.dim);
 
   const svgIcon = `
     <div style="filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.5))">
@@ -126,7 +136,7 @@ function updateLiveMarker(ship: any) {
   `;
 
   let marker = liveMarkers.get(ship.mmsi);
-  
+
   if (!marker) {
     const icon = L.divIcon({
       html: svgIcon,
@@ -208,12 +218,13 @@ function initMap(): void {
   mapInstance = L.map('map', { zoomControl: true, attributionControl: false }).setView([30, -40], 3);
   L.tileLayer(tileUrl, { maxZoom: 18, subdomains: 'abcd' }).addTo(mapInstance);
 
-  // Port markers
+  // Port congestion heatmap markers
   state.ports.forEach(port => {
     const congestionColor = { low: '#22c55e', medium: '#f59e0b', high: '#ef4444', critical: '#dc2626' }[port.congestion];
+    const radius = { low: 8, medium: 14, high: 20, critical: 28 }[port.congestion] || 8;
     const icon = L.divIcon({
-      html: `<div style="width:14px;height:14px;border-radius:50%;background:${congestionColor};border:2px solid rgba(0,0,0,0.3);"></div>`,
-      className: '', iconSize: [14, 14], iconAnchor: [7, 7],
+      html: `<div style="width:${radius}px;height:${radius}px;border-radius:50%;background:${congestionColor};border:2px solid rgba(0,0,0,0.3);opacity:0.8;box-shadow:0 0 8px ${congestionColor}66"></div>`,
+      className: '', iconSize: [radius, radius], iconAnchor: [radius / 2, radius / 2],
     });
     L.marker(port.coords, { icon })
       .addTo(mapInstance!)
@@ -222,11 +233,26 @@ function initMap(): void {
           <div style="font-weight:600;font-size:13px;margin-bottom:4px">${port.name} (${port.locode})</div>
           <div style="font-size:11px;color:#888;margin-bottom:6px">${port.country}</div>
           <div style="font-size:11px">Congestion: <strong style="color:${congestionColor}">${port.congestion.toUpperCase()}</strong></div>
+          ${port.weatherAlert ? `<div style="font-size:11px;margin-top:4px">Weather: <span style="color:var(--accent-amber)">${port.weatherAlert}</span></div>` : ''}
         </div>
       `);
   });
 
-  // Initial render handled by store subscriber
+  // Subscribe to theme changes to update map tiles
+  store.subscribe((state) => {
+    if (!mapInstance) return;
+    const newIsDark = state.theme === 'dark';
+    const newTileUrl = newIsDark
+      ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+      : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+    // Update tile layer
+    mapInstance.eachLayer((layer: any) => {
+      if (layer instanceof L.TileLayer) {
+        mapInstance?.removeLayer(layer);
+      }
+    });
+    L.tileLayer(newTileUrl, { maxZoom: 18, subdomains: 'abcd' }).addTo(mapInstance);
+  });
 }
 
 function renderTrackList(fleet: any[]): void {

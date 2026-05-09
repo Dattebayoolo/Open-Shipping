@@ -7,6 +7,7 @@ import type { Alert } from './alert';
 import type { Vessel } from './fleet';
 import type { Port, Route } from './port';
 import type { ShippingDocument } from './document';
+import type { LiveVessel } from './live-vessel';
 
 export interface UserSettings {
   dateFormat: 'DD/MM/YYYY' | 'MM/DD/YYYY' | 'ISO';
@@ -26,14 +27,14 @@ export interface UIState {
 }
 
 export interface AppState {
-  theme: 'dark' | 'light';
+  theme: 'dark' | 'light' | 'system';
   shipments: Shipment[];
   fleet: Vessel[];
   ports: Port[];
   routes: Route[];
   alerts: Alert[];
   documents: ShippingDocument[];
-  liveFleet: any[];
+  liveFleet: LiveVessel[];
   aisStatus: string;
   settings: UserSettings;
   ui: UIState;
