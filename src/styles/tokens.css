@@ -1,0 +1,130 @@
+/* ============================================================
+   OPEN SHIPPING — DESIGN TOKENS
+   ============================================================ */
+
+:root {
+  /* ---------- Spacing ---------- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+
+  /* ---------- Border Radius ---------- */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 9999px;
+
+  /* ---------- Typography ---------- */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+
+  --text-xs:   11px;
+  --text-sm:   13px;
+  --text-base: 15px;
+  --text-lg:   18px;
+  --text-xl:   22px;
+  --text-2xl:  28px;
+  --text-3xl:  36px;
+
+  --leading-tight:  1.2;
+  --leading-snug:   1.3;
+  --leading-normal: 1.5;
+  --leading-relaxed:1.6;
+
+  --weight-light:   300;
+  --weight-regular: 400;
+  --weight-medium:  500;
+  --weight-semibold:600;
+  --weight-bold:    700;
+
+  /* ---------- Shadows ---------- */
+  --shadow-sm:  0 1px 3px rgba(0,0,0,0.4);
+  --shadow-md:  0 4px 12px rgba(0,0,0,0.5);
+  --shadow-lg:  0 8px 24px rgba(0,0,0,0.6);
+  --shadow-xl:  0 16px 48px rgba(0,0,0,0.7);
+
+  /* ---------- Transitions ---------- */
+  --transition-fast:   all 150ms ease;
+  --transition-base:   all 250ms ease;
+  --transition-slow:   all 400ms ease;
+
+  /* ---------- Sidebar Width ---------- */
+  --sidebar-width: 240px;
+  --sidebar-width-collapsed: 64px;
+  --topbar-height: 60px;
+
+  /* ---------- Accent Colors (theme-independent) ---------- */
+  --accent-green:       #22c55e;
+  --accent-green-dim:   rgba(34,197,94,0.12);
+  --accent-green-glow:  rgba(34,197,94,0.25);
+  --accent-red:         #ef4444;
+  --accent-red-dim:     rgba(239,68,68,0.12);
+  --accent-amber:       #f59e0b;
+  --accent-amber-dim:   rgba(245,158,11,0.12);
+  --accent-blue:        #3b82f6;
+  --accent-blue-dim:    rgba(59,130,246,0.12);
+}
+
+/* ============================================================
+   DARK THEME (default)
+   ============================================================ */
+[data-theme="dark"] {
+  --bg-primary:   #080808;
+  --bg-surface:   #101010;
+  --bg-elevated:  #181818;
+  --bg-hover:     #1e1e1e;
+  --bg-active:    #242424;
+
+  --border:       #1f1f1f;
+  --border-hover: #2e2e2e;
+  --border-focus: #3d3d3d;
+
+  --text-primary:   #f2f2f2;
+  --text-secondary: #888888;
+  --text-muted:     #444444;
+  --text-inverse:   #080808;
+
+  --scrollbar-track: #101010;
+  --scrollbar-thumb: #2a2a2a;
+
+  --map-tiles: 'dark_all';
+}
+
+/* ============================================================
+   LIGHT THEME
+   ============================================================ */
+[data-theme="light"] {
+  --bg-primary:   #f4f4f5;
+  --bg-surface:   #ffffff;
+  --bg-elevated:  #ebebeb;
+  --bg-hover:     #f0f0f0;
+  --bg-active:    #e8e8e8;
+
+  --border:       #e0e0e0;
+  --border-hover: #cccccc;
+  --border-focus: #aaaaaa;
+
+  --text-primary:   #111111;
+  --text-secondary: #555555;
+  --text-muted:     #aaaaaa;
+  --text-inverse:   #f2f2f2;
+
+  --accent-green:   #16a34a;
+  --accent-red:     #dc2626;
+  --accent-amber:   #d97706;
+  --accent-blue:    #2563eb;
+
+  --scrollbar-track: #f0f0f0;
+  --scrollbar-thumb: #cccccc;
+
+  --shadow-sm:  0 1px 3px rgba(0,0,0,0.08);
+  --shadow-md:  0 4px 12px rgba(0,0,0,0.10);
+  --shadow-lg:  0 8px 24px rgba(0,0,0,0.12);
+  --shadow-xl:  0 16px 48px rgba(0,0,0,0.15);
+}
