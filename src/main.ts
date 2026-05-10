@@ -14,10 +14,11 @@ import { generateMockState } from '@/data/mock';
 import { initAIS } from '@/data/ais';
 import { renderSidebar } from '@/components/sidebar';
 import { renderTopbar } from '@/components/topbar';
+import { initToastWatcher } from '@/components/toast';
 import { renderDashboard } from '@/pages/dashboard';
-import { renderShipments } from '@/pages/shipments';
-import { renderTracking } from '@/pages/tracking';
-import { renderFleet } from '@/pages/fleet';
+import { renderShipments, unmountShipments } from '@/pages/shipments';
+import { renderTracking, unmountTracking } from '@/pages/tracking';
+import { renderFleet, unmountFleet } from '@/pages/fleet';
 import { renderPorts } from '@/pages/ports';
 import { renderDocuments } from '@/pages/documents';
 import { renderAlerts } from '@/pages/alerts';
@@ -49,11 +50,14 @@ function boot(): void {
   renderSidebar();
   renderTopbar();
 
+  // 3.5 Initialize real-time toast notifications
+  initToastWatcher(store);
+
   // 4. Register all routes
   router.register({ id: 'dashboard', path: '/', title: 'Dashboard', render: renderDashboard });
-  router.register({ id: 'shipments', path: '/shipments', title: 'Shipments', render: renderShipments });
-  router.register({ id: 'tracking', path: '/tracking', title: 'Live Tracking', render: renderTracking });
-  router.register({ id: 'fleet', path: '/fleet', title: 'Fleet', render: renderFleet });
+  router.register({ id: 'shipments', path: '/shipments', title: 'Shipments', render: renderShipments, unmount: unmountShipments });
+  router.register({ id: 'tracking', path: '/tracking', title: 'Live Tracking', render: renderTracking, unmount: unmountTracking });
+  router.register({ id: 'fleet', path: '/fleet', title: 'Fleet', render: renderFleet, unmount: unmountFleet });
   router.register({ id: 'ports', path: '/ports', title: 'Ports & Routes', render: renderPorts });
   router.register({ id: 'documents', path: '/documents', title: 'Documents', render: renderDocuments });
   router.register({ id: 'alerts', path: '/alerts', title: 'Alert Center', render: renderAlerts });

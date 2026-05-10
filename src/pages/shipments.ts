@@ -3,12 +3,24 @@
 // ============================================================
 
 import { store } from '@/store';
-import { getShipTypeInfo, getNavStatusLong, relativeTime, formatDimensions } from '@/utils/ship';
+import { getNavStatusLong } from '@/utils/ship';
+import { cachedShipTypeInfo, cachedRelativeTime, cachedDimensions, throttle } from '@/utils/cache';
 
 let filteredShips: any[] = [];
 let searchQuery = '';
 let typeFilter = 'all';
+let currentView: 'table' | 'kanban' = 'table';
 let unsubscribe: (() => void) | null = null;
+let virtualScrollTop = 0;
+const ROW_HEIGHT = 56;
+const VISIBLE_ROWS = 30;
+
+export function unmountShipments(): void {
+  if (unsubscribe) {
+    unsubscribe();
+    unsubscribe = null;
+  }
+}
 
 export function renderShipments(): void {
   const content = document.getElementById('page-content');
@@ -64,29 +76,15 @@ export function renderShipments(): void {
         <button class="btn btn-ghost btn-sm" id="save-filter-btn" title="Save current filter">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
         </button>
-        <span id="result-count" style="font-size:var(--text-sm);color:var(--text-muted);margin-left:auto">0 vessels</span>
+        <div class="view-toggle" style="display:flex;gap:4px;background:var(--bg-elevated);padding:2px;border-radius:var(--radius-md);border:1px solid var(--border);margin-left:auto">
+          <button class="btn btn-sm" id="view-table" style="padding:4px 8px;${currentView === 'table' ? 'background:var(--bg-surface);box-shadow:var(--shadow-sm)' : ''}">Table</button>
+          <button class="btn btn-sm btn-ghost" id="view-kanban" style="padding:4px 8px;${currentView === 'kanban' ? 'background:var(--bg-surface);box-shadow:var(--shadow-sm)' : ''}">Kanban</button>
+        </div>
+        <span id="result-count" style="font-size:var(--text-sm);color:var(--text-muted);margin-left:var(--space-4)">0 vessels</span>
       </div>
 
-      <!-- Table -->
-      <div class="table-wrapper">
-        <table class="data-table" id="shipments-table">
-          <thead>
-            <tr>
-              <th>Vessel Name</th>
-              <th>MMSI / Callsign</th>
-              <th>Type</th>
-              <th>Nav Status</th>
-              <th>Speed / Course</th>
-              <th>Destination</th>
-              <th>Last Update</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody id="shipments-tbody">
-            <tr><td colspan="8"><div class="empty-state"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2L4 10v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V10L12 2z"/></svg><h3>Connecting to AIS Stream</h3><p>Waiting for real-time vessel data...</p></div></td></tr>
-          </tbody>
-        </table>
-      </div>
+      <!-- Content Area -->
+      <div id="shipments-content-area" style="flex:1;min-height:0;overflow:auto"></div>
     </div>
 
     <!-- Detail Drawer -->
@@ -108,9 +106,23 @@ export function renderShipments(): void {
   bindEvents();
   loadSavedFilters();
 
+  document.getElementById('view-table')?.addEventListener('click', () => { currentView = 'table'; renderContent(); });
+  document.getElementById('view-kanban')?.addEventListener('click', () => { currentView = 'kanban'; renderContent(); });
+
+  const container = document.getElementById('shipments-content-area');
+  if (container) {
+    container.addEventListener('scroll', () => {
+      if (currentView === 'table') {
+        virtualScrollTop = container.scrollTop;
+        renderVirtualRows();
+      }
+    });
+  }
+
   if (unsubscribe) unsubscribe();
-  unsubscribe = store.subscribe(updateFromStore);
-  updateFromStore(store.getState());
+  const throttledUpdate = throttle(updateFromStore, 500);
+  unsubscribe = store.subscribe(throttledUpdate);
+  throttledUpdate(store.getState());
 }
 
 // ── Saved Filters (localStorage) ────────────────────────────
@@ -159,8 +171,8 @@ function applyFilter(): void {
   const state = store.getState();
   const fleet = state.liveFleet || [];
 
-  filteredShips = fleet.filter(s => {
-    const typeInfo = getShipTypeInfo(s.type);
+  filteredShips = fleet.filter((s: any) => {
+    const typeInfo = cachedShipTypeInfo(s.type);
     const matchSearch = !q ||
       s.mmsi.toString().includes(q) ||
       (s.name && s.name.toLowerCase().includes(q)) ||
@@ -173,59 +185,161 @@ function applyFilter(): void {
   // Sort by most recently updated
   filteredShips.sort((a, b) => (b.updated?.getTime() || 0) - (a.updated?.getTime() || 0));
 
-  renderTable();
+  virtualScrollTop = 0;
+  const container = document.getElementById('shipments-content-area');
+  if (container) container.scrollTop = 0;
+
+  renderContent();
 
   const count = document.getElementById('result-count');
   if (count) count.textContent = `${filteredShips.length} vessels`;
 }
 
-function renderTable(): void {
-  const tbody = document.getElementById('shipments-tbody');
-  if (!tbody) return;
+function renderContent(): void {
+  const container = document.getElementById('shipments-content-area');
+  if (!container) return;
 
   if (!filteredShips.length) {
-    tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8"/></svg><h3>No vessels found</h3><p>Try adjusting your filters or wait for more data</p></div></td></tr>`;
+    container.innerHTML = `<div class="empty-state" style="margin-top:var(--space-8)"><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8"/></svg><h3>No vessels found</h3><p>Try adjusting your filters or wait for more data</p></div>`;
     return;
   }
 
-  // Only render top 100 to keep DOM fast
-  const displayShips = filteredShips.slice(0, 100);
-
-  tbody.innerHTML = displayShips.map(s => {
-    const typeInfo = getShipTypeInfo(s.type);
-    return `
-    <tr data-mmsi="${s.mmsi}" class="shipment-row">
-      <td style="font-weight:var(--weight-semibold);color:var(--text-primary);max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${s.name}">${s.name}</td>
-      <td>
-        <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-secondary)">${s.mmsi}</div>
-        ${s.callsign ? `<div style="font-size:10px;color:var(--text-muted)">${s.callsign}</div>` : ''}
-      </td>
-      <td>
-        <span class="badge badge-neutral" style="background:${typeInfo.color}20;color:${typeInfo.color};border-color:${typeInfo.color}40">${typeInfo.label}</span>
-      </td>
-      <td>
-        <div style="font-size:var(--text-sm)">${getNavStatusLong(s.navStatus)}</div>
-      </td>
-      <td>
-        <div style="font-variant-numeric:tabular-nums;font-weight:500">${s.sog !== undefined ? s.sog.toFixed(1) + ' kn' : '--'}</div>
-        <div style="font-size:10px;color:var(--text-muted)">${s.cog !== undefined ? s.cog.toFixed(1) + '°' : '--'}</div>
-      </td>
-      <td style="max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
-        ${s.destination || '<span style="color:var(--text-muted)">Unknown</span>'}
-      </td>
-      <td style="color:var(--text-muted);font-size:var(--text-sm)">
-        <div style="display:flex;align-items:center;gap:6px">
-          <div style="width:6px;height:6px;border-radius:50%;background:var(--accent-green);box-shadow:0 0 4px var(--accent-green)"></div>
-          ${s.updated ? relativeTime(s.updated) : '--'}
+  if (currentView === 'table') {
+    // Inject the skeleton table structure
+    if (!container.querySelector('#shipments-table')) {
+      container.innerHTML = `
+        <div class="table-wrapper" style="height:100%">
+          <table class="data-table" id="shipments-table" style="table-layout:fixed">
+            <thead style="position:sticky;top:0;z-index:10;background:var(--bg-surface)">
+              <tr>
+                <th style="width:20%">Vessel Name</th>
+                <th style="width:15%">MMSI / Callsign</th>
+                <th style="width:10%">Type</th>
+                <th style="width:15%">Nav Status</th>
+                <th style="width:12%">Speed / Course</th>
+                <th style="width:15%">Destination</th>
+                <th style="width:10%">Last Update</th>
+                <th style="width:3%"></th>
+              </tr>
+            </thead>
+            <tbody id="shipments-tbody">
+            </tbody>
+          </table>
         </div>
-      </td>
-      <td>
-        <button class="btn btn-ghost btn-icon btn-sm view-detail" aria-label="View details">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
-        </button>
-      </td>
-    </tr>
-  `}).join('');
+      `;
+    }
+    renderVirtualRows();
+  } else {
+    // Kanban view
+    const displayShips = filteredShips.slice(0, 100); // kanban still uses 100 max for performance
+    const underway = displayShips.filter(s => s.navStatus === 0 || s.navStatus === 8);
+    const moored = displayShips.filter(s => s.navStatus === 1 || s.navStatus === 5);
+    const other = displayShips.filter(s => s.navStatus !== 0 && s.navStatus !== 8 && s.navStatus !== 1 && s.navStatus !== 5);
+
+    const renderCard = (s: any) => {
+      const typeInfo = cachedShipTypeInfo(s.type);
+      return `
+        <div class="shipment-row fleet-card" data-mmsi="${s.mmsi}" style="margin-bottom:var(--space-3);cursor:pointer;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius-md);padding:var(--space-3)">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:var(--space-2)">
+            <div style="font-weight:var(--weight-semibold);font-size:var(--text-sm);color:var(--text-primary);max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${s.name}">${s.name}</div>
+            <span class="badge badge-neutral" style="background:${typeInfo.color}20;color:${typeInfo.color};border-color:${typeInfo.color}40;font-size:10px">${typeInfo.label}</span>
+          </div>
+          <div style="font-size:var(--text-xs);color:var(--text-secondary);margin-bottom:var(--space-2)">
+            <div>Dest: ${s.destination || 'Unknown'}</div>
+            <div>Speed: ${s.sog !== undefined ? s.sog.toFixed(1) + ' kn' : '--'}</div>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;font-size:10px;color:var(--text-muted);border-top:1px solid var(--border);padding-top:var(--space-2)">
+            <div style="font-family:'JetBrains Mono',monospace">${s.mmsi}</div>
+            <div>${s.updated ? cachedRelativeTime(new Date(s.updated)) : '--'}</div>
+          </div>
+        </div>
+      `;
+    };
+
+    container.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:var(--space-4);height:100%">
+        <div style="display:flex;flex-direction:column;height:100%">
+          <h3 style="font-size:var(--text-sm);font-weight:var(--weight-semibold);margin-bottom:var(--space-3);color:var(--text-secondary);padding:var(--space-2);background:var(--bg-elevated);border-radius:var(--radius-md);border:1px solid var(--border)">Under Way <span class="badge badge-neutral">${underway.length}</span></h3>
+          <div style="flex:1;overflow-y:auto;padding-right:var(--space-2)">
+            ${underway.map(renderCard).join('')}
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;height:100%">
+          <h3 style="font-size:var(--text-sm);font-weight:var(--weight-semibold);margin-bottom:var(--space-3);color:var(--text-secondary);padding:var(--space-2);background:var(--bg-elevated);border-radius:var(--radius-md);border:1px solid var(--border)">Moored / Anchor <span class="badge badge-neutral">${moored.length}</span></h3>
+          <div style="flex:1;overflow-y:auto;padding-right:var(--space-2)">
+            ${moored.map(renderCard).join('')}
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;height:100%">
+          <h3 style="font-size:var(--text-sm);font-weight:var(--weight-semibold);margin-bottom:var(--space-3);color:var(--text-secondary);padding:var(--space-2);background:var(--bg-elevated);border-radius:var(--radius-md);border:1px solid var(--border)">Other / Unknown <span class="badge badge-neutral">${other.length}</span></h3>
+          <div style="flex:1;overflow-y:auto;padding-right:var(--space-2)">
+            ${other.map(renderCard).join('')}
+          </div>
+        </div>
+      </div>
+    `;
+
+    container.querySelectorAll('.shipment-row, .view-detail').forEach(el => {
+      el.addEventListener('click', (e) => {
+        const row = (e.currentTarget as HTMLElement).closest('.shipment-row');
+        const mmsi = row?.getAttribute('data-mmsi');
+        if (mmsi) openDrawer(Number(mmsi));
+      });
+    });
+  }
+}
+
+function renderVirtualRows(): void {
+  const tbody = document.getElementById('shipments-tbody');
+  if (!tbody) return;
+
+  const startIdx = Math.max(0, Math.floor(virtualScrollTop / ROW_HEIGHT) - 5);
+  const endIdx = Math.min(filteredShips.length, startIdx + VISIBLE_ROWS + 10);
+  
+  const paddingTop = startIdx * ROW_HEIGHT;
+  const paddingBottom = Math.max(0, (filteredShips.length - endIdx) * ROW_HEIGHT);
+
+  const displayShips = filteredShips.slice(startIdx, endIdx);
+
+  tbody.innerHTML = `
+    ${paddingTop > 0 ? `<tr style="height:${paddingTop}px"><td colspan="8" style="padding:0;border:none"></td></tr>` : ''}
+    ${displayShips.map(s => {
+      const typeInfo = cachedShipTypeInfo(s.type);
+      return `
+      <tr data-mmsi="${s.mmsi}" class="shipment-row" style="height:${ROW_HEIGHT}px">
+        <td style="font-weight:var(--weight-semibold);color:var(--text-primary);max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${s.name}">${s.name}</td>
+        <td>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-secondary)">${s.mmsi}</div>
+          ${s.callsign ? `<div style="font-size:10px;color:var(--text-muted)">${s.callsign}</div>` : ''}
+        </td>
+        <td>
+          <span class="badge badge-neutral" style="background:${typeInfo.color}20;color:${typeInfo.color};border-color:${typeInfo.color}40">${typeInfo.label}</span>
+        </td>
+        <td>
+          <div style="font-size:var(--text-sm)">${getNavStatusLong(s.navStatus)}</div>
+        </td>
+        <td>
+          <div style="font-variant-numeric:tabular-nums;font-weight:500">${s.sog !== undefined ? s.sog.toFixed(1) + ' kn' : '--'}</div>
+          <div style="font-size:10px;color:var(--text-muted)">${s.cog !== undefined ? s.cog.toFixed(1) + '°' : '--'}</div>
+        </td>
+        <td style="max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+          ${s.destination || '<span style="color:var(--text-muted)">Unknown</span>'}
+        </td>
+        <td style="color:var(--text-muted);font-size:var(--text-sm)">
+          <div style="display:flex;align-items:center;gap:6px">
+            <div style="width:6px;height:6px;border-radius:50%;background:var(--accent-green);box-shadow:0 0 4px var(--accent-green)"></div>
+            ${s.updated ? cachedRelativeTime(new Date(s.updated)) : '--'}
+          </div>
+        </td>
+        <td>
+          <button class="btn btn-ghost btn-icon btn-sm view-detail" aria-label="View details">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+        </td>
+      </tr>
+      `}).join('')}
+    ${paddingBottom > 0 ? `<tr style="height:${paddingBottom}px"><td colspan="8" style="padding:0;border:none"></td></tr>` : ''}
+  `;
 
   tbody.querySelectorAll('.shipment-row, .view-detail').forEach(el => {
     el.addEventListener('click', (e) => {
@@ -249,8 +363,8 @@ function openDrawer(mmsi: number): void {
 
   if (!drawer || !overlay || !title || !subtitle || !body) return;
 
-  const typeInfo = getShipTypeInfo(ship.type);
-  const dims = formatDimensions(ship.dim);
+  const typeInfo = cachedShipTypeInfo(ship.type);
+  const dims = cachedDimensions(ship.mmsi, ship.dim);
 
   title.textContent = ship.name;
   subtitle.textContent = `MMSI: ${ship.mmsi} ${ship.callsign ? '· ' + ship.callsign : ''}`;
@@ -439,7 +553,7 @@ function bindEvents(): void {
   document.getElementById('export-csv-btn')?.addEventListener('click', () => {
     const headers = ['Name', 'MMSI', 'Callsign', 'IMO', 'Type', 'NavStatus', 'SOG', 'COG', 'Lat', 'Lng', 'Destination'];
     const rows = filteredShips.map((s: any) => [
-      `"${s.name || ''}"`, s.mmsi, `"${s.callsign || ''}"`, s.imo || '', getShipTypeInfo(s.type).label,
+      `"${s.name || ''}"`, s.mmsi, `"${s.callsign || ''}"`, s.imo || '', cachedShipTypeInfo(s.type).label,
       `"${getNavStatusLong(s.navStatus)}"`, s.sog, s.cog, s.lat, s.lng, `"${s.destination || ''}"`
     ]);
     const csv = [headers, ...rows].map(r => r.join(',')).join('\n');
@@ -466,7 +580,7 @@ function bindEvents(): void {
           mmsi: s.mmsi,
           callsign: s.callsign,
           imo: s.imo,
-          type: getShipTypeInfo(s.type).label,
+          type: cachedShipTypeInfo(s.type).label,
           sog: s.sog,
           cog: s.cog,
           destination: s.destination,

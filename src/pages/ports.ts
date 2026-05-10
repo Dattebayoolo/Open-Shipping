@@ -5,6 +5,7 @@
 import { store } from '@/store';
 import type { CongestionLevel } from '@/types/port';
 import { Chart, registerables } from 'chart.js';
+import { fetchCurrentWeather } from '@/services/weather';
 Chart.register(...registerables);
 
 const CONGESTION_BADGE: Record<CongestionLevel, string> = {
@@ -14,7 +15,36 @@ const FLAG_EMOJI: Record<string, string> = {
   CN: '🇨🇳', SG: '🇸🇬', NL: '🇳🇱', US: '🇺🇸', AE: '🇦🇪', DE: '🇩🇪', GB: '🇬🇧', JP: '🇯🇵', KR: '🇰🇷',
 };
 
+// Weather Cache
+let weatherCache: Record<string, { temp: number; wind: number; code: number; isDay: number }> | null = null;
+
 let routeChart: Chart | null = null;
+
+// WMO Weather interpretation codes
+const WMO_CODES: Record<number, { label: string; icon: string }> = {
+  0: { label: 'Clear sky', icon: '☀️' },
+  1: { label: 'Mainly clear', icon: '🌤️' },
+  2: { label: 'Partly cloudy', icon: '⛅' },
+  3: { label: 'Overcast', icon: '☁️' },
+  45: { label: 'Fog', icon: '🌫️' },
+  48: { label: 'Depositing rime fog', icon: '🌫️' },
+  51: { label: 'Light drizzle', icon: '🌧️' },
+  53: { label: 'Moderate drizzle', icon: '🌧️' },
+  55: { label: 'Dense drizzle', icon: '🌧️' },
+  61: { label: 'Slight rain', icon: '🌦️' },
+  63: { label: 'Moderate rain', icon: '🌧️' },
+  65: { label: 'Heavy rain', icon: '🌧️' },
+  71: { label: 'Slight snow', icon: '🌨️' },
+  73: { label: 'Moderate snow', icon: '❄️' },
+  75: { label: 'Heavy snow', icon: '❄️' },
+  77: { label: 'Snow grains', icon: '❄️' },
+  80: { label: 'Slight rain showers', icon: '🌦️' },
+  81: { label: 'Moderate rain showers', icon: '🌧️' },
+  82: { label: 'Violent rain showers', icon: '⛈️' },
+  95: { label: 'Thunderstorm', icon: '⛈️' },
+  96: { label: 'Thunderstorm with hail', icon: '⛈️' },
+  99: { label: 'Heavy thunderstorm with hail', icon: '⛈️' },
+};
 
 export function renderPorts(): void {
   const content = document.getElementById('page-content');
@@ -33,6 +63,24 @@ export function renderPorts(): void {
         <div>
           <h2 class="page-heading">Ports & Routes</h2>
           <p class="page-subheading">Port congestion status and route analytics</p>
+        </div>
+      </div>
+
+      <!-- Weather at Ports Cards -->
+      <div style="margin-bottom:var(--space-5)">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-3)">
+          <h3 style="font-size:var(--text-sm);font-weight:var(--weight-semibold);color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.05em">Current Weather at Hubs</h3>
+          <span id="weather-status" style="font-size:10px;color:var(--text-muted)">Fetching live data (Open-Meteo)...</span>
+        </div>
+        <div id="weather-cards-container" style="display:flex;gap:var(--space-4);overflow-x:auto;padding-bottom:var(--space-2);scrollbar-width:none">
+          <!-- Skeleton loaders -->
+          ${Array(5).fill(0).map(() => `
+            <div class="card" style="min-width:200px;flex-shrink:0;opacity:0.6">
+              <div class="skeleton" style="height:14px;width:100px;margin-bottom:8px"></div>
+              <div class="skeleton" style="height:24px;width:140px;margin-bottom:16px"></div>
+              <div class="skeleton" style="height:32px;width:60px"></div>
+            </div>
+          `).join('')}
         </div>
       </div>
 
@@ -170,4 +218,75 @@ export function renderPorts(): void {
   document.getElementById('route-selector')?.addEventListener('change', (e) => {
     renderRouteChart((e.target as HTMLSelectElement).value);
   });
+
+  fetchWeather();
+
+  async function fetchWeather() {
+    const container = document.getElementById('weather-cards-container');
+    const status = document.getElementById('weather-status');
+    if (!container || !status) return;
+
+    if (weatherCache) {
+      renderWeatherCards(container);
+      status.textContent = 'Live Data Active';
+      return;
+    }
+
+    try {
+      const coords = ports.map(p => p.coords as [number, number]);
+      const results = await fetchCurrentWeather(coords);
+      
+      weatherCache = {};
+      results.forEach((w, i) => {
+        weatherCache![ports[i].id] = w;
+      });
+
+      status.textContent = 'Live Data Active';
+      renderWeatherCards(container);
+    } catch (err) {
+      console.error(err);
+      status.textContent = 'Weather Unavailable';
+      container.innerHTML = '<p class="text-muted" style="font-size:12px">Could not load weather data.</p>';
+    }
+  }
+
+  function renderWeatherCards(container: HTMLElement) {
+    if (!weatherCache) return;
+    
+    // Sort ports by most congested or randomly select top 8 to display as cards
+    const displayPorts = ports.slice(0, 8);
+    
+    container.innerHTML = displayPorts.map(p => {
+      const w = weatherCache![p.id];
+      if (!w) return '';
+      
+      const wmo = WMO_CODES[w.code] || { label: 'Unknown', icon: '❓' };
+      const icon = w.isDay === 0 && w.code <= 2 ? '🌙' : wmo.icon; // night icon for clear skies
+
+      return `
+        <div class="card card-hover" style="min-width:220px;flex-shrink:0;padding:var(--space-3);display:flex;flex-direction:column;gap:var(--space-2)">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start">
+            <div>
+              <div style="font-weight:var(--weight-semibold);color:var(--text-primary);font-size:var(--text-sm)">${p.name}</div>
+              <div style="font-size:10px;color:var(--text-muted);font-family:'JetBrains Mono',monospace">${p.locode}</div>
+            </div>
+            <div style="font-size:24px;line-height:1">${icon}</div>
+          </div>
+          
+          <div style="display:flex;align-items:baseline;gap:var(--space-2);margin-top:var(--space-2)">
+            <div style="font-size:24px;font-weight:700;letter-spacing:-0.05em">${w.temp}°C</div>
+            <div style="font-size:11px;color:var(--text-secondary)">${wmo.label}</div>
+          </div>
+          
+          <div style="display:flex;justify-content:space-between;align-items:center;font-size:10px;color:var(--text-muted);border-top:1px solid var(--border);padding-top:8px;margin-top:4px">
+            <div>Wind: ${w.wind} km/h</div>
+            <div style="display:flex;align-items:center;gap:4px">
+              <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${p.congestion === 'critical' ? 'var(--accent-red)' : p.congestion === 'high' ? 'var(--accent-amber)' : 'var(--accent-green)'}"></span>
+              ${p.congestion.toUpperCase()}
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
 }

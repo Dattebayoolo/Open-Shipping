@@ -7,6 +7,7 @@ export interface Route {
   path: string;
   title: string;
   render: () => void;
+  unmount?: () => void;
 }
 
 class Router {
@@ -40,6 +41,9 @@ class Router {
     const route = this.routes.get(path);
 
     if (route) {
+      if (this.currentRoute && this.currentRoute.unmount) {
+        this.currentRoute.unmount();
+      }
       this.currentRoute = route;
       route.render();
       // Update document title

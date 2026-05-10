@@ -80,8 +80,25 @@ export function renderSidebar(): void {
   // Sidebar toggle
   toggle.onclick = () => {
     sidebar.classList.toggle('collapsed');
-    store.setState({ ui: { sidebarCollapsed: sidebar.classList.contains('collapsed') } });
+    const isCollapsed = sidebar.classList.contains('collapsed');
+    store.setState({ ui: { sidebarCollapsed: isCollapsed } });
+    
+    // Toggle overlay on mobile
+    if (window.innerWidth <= 640) {
+      const overlay = document.getElementById('sidebar-overlay');
+      if (overlay) overlay.classList.toggle('hidden', isCollapsed);
+    }
   };
+
+  // Close sidebar on mobile when overlay is clicked
+  const overlay = document.getElementById('sidebar-overlay');
+  if (overlay) {
+    overlay.onclick = () => {
+      sidebar.classList.add('collapsed');
+      store.setState({ ui: { sidebarCollapsed: true } });
+      overlay.classList.add('hidden');
+    };
+  }
 
   // Keep active state in sync with route changes
   window.addEventListener('routechange', () => {
@@ -89,6 +106,13 @@ export function renderSidebar(): void {
       const path = (link as HTMLElement).dataset.path;
       link.classList.toggle('active', path === router.getCurrentPath());
     });
+    // Auto-close sidebar on mobile after navigation
+    if (window.innerWidth <= 640 && !sidebar.classList.contains('collapsed')) {
+      sidebar.classList.add('collapsed');
+      store.setState({ ui: { sidebarCollapsed: true } });
+      const overlay = document.getElementById('sidebar-overlay');
+      if (overlay) overlay.classList.add('hidden');
+    }
   });
 }
 

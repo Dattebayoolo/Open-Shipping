@@ -1,13 +1,10 @@
 // ============================================================
 // DASHBOARD PAGE (LIVE AIS ENABLED)
-// ============================================================
-
 import { store } from '@/store';
-import { Chart, registerables } from 'chart.js';
-import { getShipTypeLabel, getNavStatus } from '@/utils/ship';
-Chart.register(...registerables);
+import Chart from 'chart.js/auto';
+import { throttle, cachedShipTypeInfo, cachedNavStatus } from '@/utils/cache';
 
-let typeChart: Chart | null = null;
+let activityChart: Chart | null = null;
 let statusChart: Chart | null = null;
 let dashboardInterval: any = null;
 
@@ -103,12 +100,12 @@ export function renderDashboard(): void {
     </div>
   `;
 
-  if (typeChart) { typeChart.destroy(); typeChart = null; }
+  if (activityChart) { activityChart.destroy(); activityChart = null; }
   if (statusChart) { statusChart.destroy(); statusChart = null; }
 
   const typeCtx = (document.getElementById('type-chart') as HTMLCanvasElement)?.getContext('2d');
   if (typeCtx) {
-    typeChart = new Chart(typeCtx, {
+    activityChart = new Chart(typeCtx, {
       type: 'doughnut',
       data: { labels: [], datasets: [{ data: [], backgroundColor: ['#10b981', '#ef4444', '#3b82f6', '#f59e0b', '#8b5cf6', '#94a3b8'], borderWidth: 0 }] },
       options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { color: textColor } } }, cutout: '70%' }
@@ -124,12 +121,11 @@ export function renderDashboard(): void {
     });
   }
 
-  updateDashboardData();
-  dashboardInterval = setInterval(updateDashboardData, 3000);
+  store.subscribe(throttle(updateFromStore, 500));
+  updateFromStore(store.getState());
 }
 
-function updateDashboardData() {
-  const state = store.getState();
+function updateFromStore(state: any) {
   const fleet = state.liveFleet || [];
 
   const statusEl = document.getElementById('dash-ais-status');
@@ -141,17 +137,16 @@ function updateDashboardData() {
   if (!fleet.length) return;
 
   const total = fleet.length;
-  const underWay = fleet.filter(s => s.navStatus === 0 || s.navStatus === 8);
-
+  const underWay = fleet.filter((s: any) => s.navStatus === 0);
   let speedSum = 0;
   let speedCount = 0;
-  fleet.forEach(s => {
+  underWay.forEach((s: any) => {
     if (s.sog !== undefined && s.sog > 0 && s.sog < 100) { speedSum += s.sog; speedCount++; }
   });
   const avgSpeed = speedCount ? (speedSum / speedCount).toFixed(1) : '0.0';
 
   const destMap: Record<string, number> = {};
-  fleet.forEach(s => {
+  fleet.forEach((s: any) => {
     if (s.destination && s.destination.trim()) {
       const d = s.destination.trim();
       destMap[d] = (destMap[d] || 0) + 1;
@@ -165,17 +160,17 @@ function updateDashboardData() {
   document.getElementById('kpi-dest')!.textContent = topDest ? topDest[0] : '--';
 
   // Update Charts
-  if (typeChart) {
+  if (activityChart) {
     const typeCount: Record<string, number> = {};
-    fleet.forEach(s => { const l = getShipTypeLabel(s.type); typeCount[l] = (typeCount[l] || 0) + 1; });
-    typeChart.data.labels = Object.keys(typeCount);
-    typeChart.data.datasets[0].data = Object.values(typeCount);
-    typeChart.update();
+    fleet.forEach((s: any) => { const l = cachedShipTypeInfo(s.type).label; typeCount[l] = (typeCount[l] || 0) + 1; });
+    activityChart.data.labels = Object.keys(typeCount);
+    activityChart.data.datasets[0].data = Object.values(typeCount);
+    activityChart.update();
   }
 
   if (statusChart) {
     const navCount: Record<string, number> = {};
-    fleet.forEach(s => { const l = getNavStatus(s.navStatus); navCount[l] = (navCount[l] || 0) + 1; });
+    fleet.forEach((s: any) => { const l = cachedNavStatus(s.navStatus); navCount[l] = (navCount[l] || 0) + 1; });
     // Sort by count
     const sortedNav = Object.entries(navCount).sort((a, b) => b[1] - a[1]).slice(0, 6);
     statusChart.data.labels = sortedNav.map(n => n[0]);
